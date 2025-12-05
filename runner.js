@@ -235,6 +235,7 @@ const generateRunReq = async ({
     pointList: '',
     routeId,
     runType: '0',
+    runTimeType: '1',
     sensorString: '',
     startTime: format(startTime, 'HH:mm:ss'),
     steps: `${1000 + Math.floor(Math.random() * 1000)}`,
@@ -244,7 +245,7 @@ const generateRunReq = async ({
     usedTime: timeUtil.getHHmmss(duration),
     version: '1.2.14',
     warnFlag: '0',
-    warnType: '',
+    warnType: '0',
     faceData: '',
   };
   return { req, endTime: new Date(Number(now) + waitSecond * 1000), adjustedDistance };
