@@ -235,7 +235,7 @@ const generateRunReq = async ({
     pointList: '',
     routeId,
     runType: '0',
-    runTimeType: '1',
+    runTimeType: '0',
     sensorString: '',
     startTime: format(startTime, 'HH:mm:ss'),
     steps: `${1000 + Math.floor(Math.random() * 1000)}`,
