@@ -205,9 +205,7 @@ const generateRunReq = async ({
   const defaultLocalStart = new Date(now.getTime() + diffMs);
   const defaultLocalEnd = new Date(now.getTime() + waitSecond * 1000 + diffMs);
 
-  const endTime = parsedCustomEnd
-    ? new Date(parsedCustomEnd.getTime() + diffMs)
-    : defaultLocalEnd;
+  const endTime = parsedCustomEnd ?? defaultLocalEnd;
   const startTime = parsedCustomEnd
     ? new Date(endTime.getTime() - waitSecond * 1000)
     : defaultLocalStart;
