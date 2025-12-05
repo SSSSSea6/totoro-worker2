@@ -11,7 +11,8 @@ const encryptRequestContent = (req) => {
   const rsa = new NodeRSA(rsaKeys.privateKey);
   rsa.setOptions({ encryptionScheme: 'pkcs1' });
   const reqStr = JSON.stringify(req);
-  return rsa.encrypt(reqStr, 'base64');
+  // NodeRSA 在部分运行环境要求入参必须是 Buffer，否则会抛出 “data must be a node Buffer”
+  return rsa.encrypt(Buffer.from(reqStr, 'utf-8'), 'base64');
 };
 
 const generateMac = async (stuNumber) => {
@@ -50,9 +51,27 @@ const timeUtil = {
 };
 
 const BEIJING_OFFSET_MINUTES = 8 * 60;
-// Convert any Date to Beijing time (UTC+8) regardless of host timezone.
-const toBeijingDate = (date = new Date()) =>
-  new Date(date.getTime() + (date.getTimezoneOffset() + BEIJING_OFFSET_MINUTES) * 60 * 1000);
+const offsetDiffMs = () => {
+  const currentOffsetMinutes = -new Date().getTimezoneOffset();
+  return (BEIJING_OFFSET_MINUTES - currentOffsetMinutes) * 60 * 1000;
+};
+
+const parseCustomEndTime = (customEndTime) => {
+  if (!customEndTime) return null;
+  if (customEndTime instanceof Date) return customEndTime;
+  const normalized = String(customEndTime).trim().replace(' ', 'T');
+  if (!normalized) return null;
+
+  const withSeconds = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)
+    ? `${normalized}:00`
+    : normalized;
+  const withZone = /([+-]\d{2}:?\d{2}|Z)$/i.test(withSeconds)
+    ? withSeconds
+    : `${withSeconds}+08:00`;
+
+  const parsed = new Date(withZone);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
 
 const formatPointToAMap = (point) => [Number(point.longitude), Number(point.latitude)];
 const formatRouteToAMap = (route) => route.map((point) => formatPointToAMap(point));
@@ -169,15 +188,25 @@ const generateRunReq = async ({
   phoneNumber,
   minTime,
   maxTime,
+  customEndTime,
 }) => {
   const minSecond = Number(minTime) * 60;
   const maxSecond = Number(maxTime) * 60;
   const avgSecond = minSecond + maxSecond / 2;
   const waitSecond = Math.floor(normalRandom(minSecond + maxSecond / 2, (maxSecond - avgSecond) / 3));
-  const startTimeUtc = new Date();
-  const endTimeUtc = new Date(Number(startTimeUtc) + waitSecond * 1000);
-  const startTime = toBeijingDate(startTimeUtc);
-  const endTime = toBeijingDate(endTimeUtc);
+  const diffMs = offsetDiffMs();
+  const now = new Date();
+  const parsedCustomEnd = parseCustomEndTime(customEndTime);
+
+  const defaultLocalStart = new Date(now.getTime() + diffMs);
+  const defaultLocalEnd = new Date(now.getTime() + waitSecond * 1000 + diffMs);
+
+  const endTime = parsedCustomEnd
+    ? new Date(parsedCustomEnd.getTime() + diffMs)
+    : defaultLocalEnd;
+  const startTime = parsedCustomEnd
+    ? new Date(endTime.getTime() - waitSecond * 1000)
+    : defaultLocalStart;
 
   const originalDistanceNum = Number(distance);
   const randomIncrement = Math.random() * 0.05 + 0.01;
@@ -185,7 +214,7 @@ const generateRunReq = async ({
   const adjustedDistance = adjustedDistanceNum.toFixed(2);
 
   const avgSpeed = (adjustedDistanceNum / (waitSecond / 3600)).toFixed(2);
-  const duration = intervalToDuration({ start: startTimeUtc, end: endTimeUtc });
+  const duration = intervalToDuration({ start: startTime, end: endTime });
   const mac = await generateMac(stuNumber);
   const req = {
     LocalSubmitReason: '',
@@ -216,7 +245,7 @@ const generateRunReq = async ({
     warnType: '',
     faceData: '',
   };
-  return { req, endTime, adjustedDistance };
+  return { req, endTime: new Date(Number(now) + waitSecond * 1000), adjustedDistance };
 };
 
 const baseHeaders = {
@@ -256,7 +285,7 @@ async function executeRunTask(userData) {
     throw new Error('任务数据缺失 session 或 runPoint');
   }
 
-  const { session, runPoint, mileage, minTime, maxTime } = userData;
+  const { session, runPoint, mileage, minTime, maxTime, customEndTime } = userData;
   const basicReq = {
     campusId: session.campusId,
     schoolId: session.schoolId,
@@ -274,6 +303,7 @@ async function executeRunTask(userData) {
     phoneNumber: session.phoneNumber,
     minTime,
     maxTime,
+    customEndTime,
   });
 
   await postEncrypted('sunrun/getRunBegin', basicReq);

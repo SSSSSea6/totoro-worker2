@@ -97,6 +97,7 @@ executeRunTask(job.user_data);
   // 预计最短/最长用时（分钟），用于生成合理的配速与用时
   minTime: number | string;
   maxTime: number | string;
+  customEndTime?: string;
 }
 ```
 
