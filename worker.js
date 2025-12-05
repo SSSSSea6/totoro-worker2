@@ -28,10 +28,7 @@ async function acquireJob() {
   }
 
   const job = pendingJobs?.[0];
-  if (!job) {
-    console.log(`[Worker ${WORKER_ID}] \u961f\u5217\u4e3a\u7a7a\uff08\u65e0 PENDING\uff09`);
-    return null;
-  }
+  if (!job) return null;
 
   const { data: updatedJob, error: lockError } = await supabase
     .from('Tasks')
@@ -42,17 +39,7 @@ async function acquireJob() {
     .single();
 
   if (lockError || !updatedJob) {
-    console.warn(
-      `[Worker ${WORKER_ID}] \u9501\u5b9a\u4efb\u52a1\u5931\u8d25`,
-      JSON.stringify({
-        id: job.id,
-        lockError: lockError?.message,
-        code: lockError?.code,
-        details: lockError?.details,
-        hint: lockError?.hint,
-        updatedJobEmpty: !updatedJob,
-      }),
-    );
+    console.warn(`[Worker ${WORKER_ID}] \u4efb\u52a1 ${job.id} \u88ab\u5176\u4ed6\u5b9e\u4f8b\u9501\u5b9a\uff0c\u8df3\u8fc7`);
     return null;
   }
 
