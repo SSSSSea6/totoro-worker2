@@ -73,6 +73,17 @@ const parseCustomEndTime = (customEndTime) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const parseStartDate = (startDate) => {
+  if (!startDate) return null;
+  if (startDate instanceof Date) return startDate;
+  const normalized = String(startDate).trim();
+  if (!normalized) return null;
+  const withTime = /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? `${normalized}T00:00:00` : normalized;
+  const withZone = /([+-]\d{2}:?\d{2}|Z)$/i.test(withTime) ? withTime : `${withTime}+08:00`;
+  const parsed = new Date(withZone);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 const formatPointToAMap = (point) => [Number(point.longitude), Number(point.latitude)];
 const formatRouteToAMap = (route) => route.map((point) => formatPointToAMap(point));
 
@@ -189,6 +200,7 @@ const generateRunReq = async ({
   minTime,
   maxTime,
   customEndTime,
+  startDate,
 }) => {
   const minSecond = Number(minTime) * 60;
   const maxSecond = Number(maxTime) * 60;
@@ -202,9 +214,19 @@ const generateRunReq = async ({
   const now = new Date();
   const nowLocal = new Date(now.getTime() + diffMs);
   const parsedCustomEnd = parseCustomEndTime(customEndTime);
+  const semesterStart = parseStartDate(startDate);
 
   const defaultLocalStart = new Date(now.getTime() + diffMs);
   const defaultLocalEnd = new Date(now.getTime() + waitSecond * 1000 + diffMs);
+
+  if (parsedCustomEnd) {
+    if (parsedCustomEnd > nowLocal) {
+      throw new Error('customEndTime 不可晚于当前时间');
+    }
+    if (semesterStart && parsedCustomEnd < semesterStart) {
+      throw new Error('customEndTime 早于本学期开始时间');
+    }
+  }
 
   const endTime = parsedCustomEnd ?? defaultLocalEnd;
   const startTime = parsedCustomEnd
@@ -317,6 +339,7 @@ async function executeRunTask(userData) {
     minTime,
     maxTime,
     customEndTime,
+    startDate: userData.startDate,
   });
 
   await postEncrypted('sunrun/getRunBegin', basicReq);
