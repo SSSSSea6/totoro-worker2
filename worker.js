@@ -115,7 +115,7 @@ async function acquireJob() {
 
 async function processJob(job) {
   const start = Date.now();
-  console.log(`[Worker ${WORKER_ID}] ?????? ${job.id}`);
+  console.log(`[Worker ${WORKER_ID}] 开始处理任务 ${job.id}`);
   try {
     const isBackfill = Boolean(job.user_data?.customDate || job.user_data?.customPeriod);
     if (isBackfill && job.user_data?.session?.stuNumber) {
@@ -127,14 +127,14 @@ async function processJob(job) {
       .from('Tasks')
       .update({ status: 'SUCCESS', result_log: resultLog })
       .eq('id', job.id);
-    console.log(`[Worker ${WORKER_ID}] ?? ${job.id} ????? ${Date.now() - start} ms`);
+    console.log(`[Worker ${WORKER_ID}] 任务 ${job.id} 成功，耗时 ${Date.now() - start} ms`);
   } catch (taskError) {
     const isBackfill = Boolean(job.user_data?.customDate || job.user_data?.customPeriod);
     if (isBackfill && job.user_data?.session?.stuNumber) {
       try {
         await refundBackfillCredit(job.user_data.session.stuNumber);
       } catch (refundError) {
-        console.error(`[Worker ${WORKER_ID}] ????????: ${refundError.message}`);
+        console.error(`[Worker ${WORKER_ID}] 返还补跑次数失败: ${refundError.message}`);
       }
     }
 
@@ -142,7 +142,7 @@ async function processJob(job) {
       .from('Tasks')
       .update({ status: 'FAILED', result_log: taskError.message })
       .eq('id', job.id);
-    console.error(`[Worker ${WORKER_ID}] ?? ${job.id} ????? ${Date.now() - start} ms: ${taskError.message}`);
+    console.error(`[Worker ${WORKER_ID}] 任务 ${job.id} 失败，耗时 ${Date.now() - start} ms: ${taskError.message}`);
   }
 }
 
