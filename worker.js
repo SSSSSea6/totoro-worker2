@@ -14,6 +14,55 @@ const POLLING_DELAY = Number(process.env.WORKER_POLLING_DELAY ?? 15000);
 const WORKER_ID = process.env.WORKER_ID || `worker-${Math.random().toString(36).slice(2, 8)}`;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function consumeBackfillCredit(userId) {
+  const { data, error } = await supabase
+    .from('backfill_run_credits')
+    .select('credits')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error && error.code !== 'PGRST116') {
+    throw new Error(`查询补跑次数失败: ${error.message}`);
+  }
+  const currentCredits = data?.credits ?? 0;
+  if (!data) {
+    const { error: initError } = await supabase
+      .from('backfill_run_credits')
+      .insert({ user_id: userId, credits: currentCredits })
+      .select('credits')
+      .maybeSingle();
+    if (initError) throw new Error(`初始化补跑次数失败: ${initError.message}`);
+  }
+  if (currentCredits < 1) {
+    throw new Error('补跑次数不足');
+  }
+  const { error: updateError } = await supabase
+    .from('backfill_run_credits')
+    .update({ credits: currentCredits - 1, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+  if (updateError) {
+    throw new Error(`扣减补跑次数失败: ${updateError.message}`);
+  }
+}
+
+async function refundBackfillCredit(userId) {
+  const { data, error } = await supabase
+    .from('backfill_run_credits')
+    .select('credits')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error && error.code !== 'PGRST116') {
+    throw new Error(`查询补跑次数失败: ${error.message}`);
+  }
+  const currentCredits = data?.credits ?? 0;
+  const nextCredits = currentCredits + 1;
+  const { error: updateError } = await supabase
+    .from('backfill_run_credits')
+    .upsert({ user_id: userId, credits: nextCredits, updated_at: new Date().toISOString() });
+  if (updateError) {
+    throw new Error(`返还补跑次数失败: ${updateError.message}`);
+  }
+}
+
 async function acquireJob() {
   const { data: pendingJobs, error: fetchError } = await supabase
     .from('Tasks')
@@ -66,20 +115,34 @@ async function acquireJob() {
 
 async function processJob(job) {
   const start = Date.now();
-  console.log(`[Worker ${WORKER_ID}] \u5f00\u59cb\u5904\u7406\u4efb\u52a1 ${job.id}`);
+  console.log(`[Worker ${WORKER_ID}] ?????? ${job.id}`);
   try {
+    const isBackfill = Boolean(job.user_data?.customDate || job.user_data?.customPeriod);
+    if (isBackfill && job.user_data?.session?.stuNumber) {
+      await consumeBackfillCredit(job.user_data.session.stuNumber);
+    }
+
     const resultLog = await executeRunTask(job.user_data);
     await supabase
       .from('Tasks')
       .update({ status: 'SUCCESS', result_log: resultLog })
       .eq('id', job.id);
-    console.log(`[Worker ${WORKER_ID}] \u4efb\u52a1 ${job.id} \u6210\u529f\uff0c\u8017\u65f6 ${Date.now() - start} ms`);
+    console.log(`[Worker ${WORKER_ID}] ?? ${job.id} ????? ${Date.now() - start} ms`);
   } catch (taskError) {
+    const isBackfill = Boolean(job.user_data?.customDate || job.user_data?.customPeriod);
+    if (isBackfill && job.user_data?.session?.stuNumber) {
+      try {
+        await refundBackfillCredit(job.user_data.session.stuNumber);
+      } catch (refundError) {
+        console.error(`[Worker ${WORKER_ID}] ????????: ${refundError.message}`);
+      }
+    }
+
     await supabase
       .from('Tasks')
       .update({ status: 'FAILED', result_log: taskError.message })
       .eq('id', job.id);
-    console.error(`[Worker ${WORKER_ID}] \u4efb\u52a1 ${job.id} \u5931\u8d25\uff0c\u8017\u65f6 ${Date.now() - start} ms: ${taskError.message}`);
+    console.error(`[Worker ${WORKER_ID}] ?? ${job.id} ????? ${Date.now() - start} ms: ${taskError.message}`);
   }
 }
 
