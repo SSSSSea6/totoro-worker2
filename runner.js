@@ -84,6 +84,26 @@ const parseStartDate = (startDate) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const buildCustomEndFromSlot = (customDate, customPeriod) => {
+  if (!customDate || !customPeriod) return null;
+  const dateStr = String(customDate).trim();
+  const slot = String(customPeriod).toUpperCase();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+  const slotRange =
+    slot === 'AM'
+      ? { start: '07:30:00', end: '11:30:00' }
+      : slot === 'PM'
+        ? { start: '13:30:00', end: '21:30:00' }
+        : null;
+  if (!slotRange) return null;
+  const start = new Date(`${dateStr}T${slotRange.start}+08:00`);
+  const end = new Date(`${dateStr}T${slotRange.end}+08:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null;
+  const rangeMs = end.getTime() - start.getTime();
+  const randomMs = Math.floor(Math.random() * rangeMs);
+  return new Date(start.getTime() + randomMs);
+};
+
 const formatPointToAMap = (point) => [Number(point.longitude), Number(point.latitude)];
 const formatRouteToAMap = (route) => route.map((point) => formatPointToAMap(point));
 
@@ -201,6 +221,8 @@ const generateRunReq = async ({
   maxTime,
   customEndTime,
   startDate,
+  customDate,
+  customPeriod,
 }) => {
   const minSecond = Number(minTime) * 60;
   const maxSecond = Number(maxTime) * 60;
@@ -213,7 +235,8 @@ const generateRunReq = async ({
   const diffMs = offsetDiffMs();
   const now = new Date();
   const nowLocal = new Date(now.getTime() + diffMs);
-  const parsedCustomEnd = parseCustomEndTime(customEndTime);
+  const parsedCustomEnd =
+    parseCustomEndTime(customEndTime) || buildCustomEndFromSlot(customDate, customPeriod);
   const semesterStart = parseStartDate(startDate);
 
   const defaultLocalStart = new Date(now.getTime() + diffMs);
@@ -320,7 +343,8 @@ async function executeRunTask(userData) {
     throw new Error('任务数据缺失 session 或 runPoint');
   }
 
-  const { session, runPoint, mileage, minTime, maxTime, customEndTime } = userData;
+  const { session, runPoint, mileage, minTime, maxTime, customEndTime, customDate, customPeriod } =
+    userData;
   const basicReq = {
     campusId: session.campusId,
     schoolId: session.schoolId,
@@ -340,6 +364,8 @@ async function executeRunTask(userData) {
     maxTime,
     customEndTime,
     startDate: userData.startDate,
+    customDate,
+    customPeriod,
   });
 
   await postEncrypted('sunrun/getRunBegin', basicReq);
