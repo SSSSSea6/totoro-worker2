@@ -228,9 +228,13 @@ const generateRunReq = async ({
   const maxSecond = Number(maxTime) * 60;
   const avgSecond = (minSecond + maxSecond) / 2;
   const stdSecond = Math.max(5, (maxSecond - minSecond) / 6);
+  const midSecond = Math.floor((minSecond + maxSecond) / 2);
   const waitSecond = Math.min(
     maxSecond,
-    Math.max(minSecond, Math.floor(normalRandom(avgSecond, stdSecond))),
+    Math.max(
+      Math.max(minSecond, midSecond),
+      Math.floor(normalRandom(avgSecond, stdSecond)),
+    ),
   );
   const diffMs = offsetDiffMs();
   const now = new Date();
