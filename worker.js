@@ -118,7 +118,8 @@ async function processJob(job) {
   console.log(`[Worker ${WORKER_ID}] 开始处理任务 ${job.id}`);
   try {
     const isBackfill = Boolean(job.user_data?.customDate || job.user_data?.customPeriod);
-    if (isBackfill && job.user_data?.session?.stuNumber) {
+    const alreadyReserved = Boolean(job.user_data?.reservedCredit);
+    if (isBackfill && job.user_data?.session?.stuNumber && !alreadyReserved) {
       await consumeBackfillCredit(job.user_data.session.stuNumber);
     }
 
