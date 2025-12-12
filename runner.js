@@ -226,23 +226,12 @@ const generateRunReq = async ({
 }) => {
   const minSecond = Number(minTime) * 60;
   const maxSecond = Number(maxTime) * 60;
-  const avgSecond = (minSecond + maxSecond) / 2;
-  const stdSecond = Math.max(5, (maxSecond - minSecond) / 6);
-  const midSecond = Math.floor((minSecond + maxSecond) / 2);
-  const sampleWait = () => Math.floor(normalRandom(avgSecond, stdSecond));
-
-  let waitSecond = sampleWait();
-  let tries = 0;
-  // 保证至少在区间后半段，若采样落在中值前则重采样几次
-  while (waitSecond < midSecond && tries < 5) {
-    waitSecond = sampleWait();
-    tries += 1;
-  }
-  if (waitSecond < midSecond) {
-    const jitter = Math.floor(Math.random() * Math.max(10, maxSecond - midSecond));
-    waitSecond = midSecond + jitter;
-  }
-  waitSecond = Math.min(maxSecond, Math.max(midSecond, waitSecond));
+  // 在最低时间基础上 +7~+12 分钟随机，若超过最大时间则截断到最大时间
+  const lowerBound = minSecond + 7 * 60;
+  const upperBound = minSecond + 12 * 60;
+  const cappedUpper = Math.max(lowerBound, Math.min(upperBound, maxSecond));
+  const range = Math.max(1, cappedUpper - lowerBound);
+  const waitSecond = Math.floor(lowerBound + Math.random() * range);
   const diffMs = offsetDiffMs();
   const now = new Date();
   const nowLocal = new Date(now.getTime() + diffMs);
