@@ -214,6 +214,8 @@ const generateRoute = (distance, taskToday) => {
 
 const SPEED_MIN_MIN_PER_KM = 5;
 const SPEED_MAX_MIN_PER_KM = 7.5;
+const SPEED_MEAN_MIN_PER_KM = 6.5;
+const SPEED_STD_MIN_PER_KM = 0.4;
 
 const generateRunReq = async ({
   distance,
@@ -239,8 +241,10 @@ const generateRunReq = async ({
   const semesterStart = parseStartDate(startDate);
 
   const defaultLocalStart = new Date(now.getTime() + diffMs);
-  const randomMinutesPerKm =
-    SPEED_MIN_MIN_PER_KM + Math.random() * (SPEED_MAX_MIN_PER_KM - SPEED_MIN_MIN_PER_KM);
+  const randomMinutesPerKm = Math.min(
+    SPEED_MAX_MIN_PER_KM,
+    Math.max(SPEED_MIN_MIN_PER_KM, normalRandom(SPEED_MEAN_MIN_PER_KM, SPEED_STD_MIN_PER_KM)),
+  );
   const originalDistanceNum = Number(distance);
   const randomIncrement = Math.random() * 0.05 + 0.01;
   const adjustedDistanceNum = originalDistanceNum + randomIncrement;
