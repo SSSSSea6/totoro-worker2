@@ -11,8 +11,19 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const RATE_LIMIT_DELAY = Math.max(0, Number(process.env.WORKER_RATE_LIMIT_DELAY ?? 0));
 const POLLING_DELAY = Number(process.env.WORKER_POLLING_DELAY ?? 15000);
+const MAX_ATTEMPTS = Math.max(1, Number(process.env.WORKER_MAX_ATTEMPTS ?? 3));
 const WORKER_ID = process.env.WORKER_ID || `worker-${Math.random().toString(36).slice(2, 8)}`;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function markReservedCredit(job) {
+  if (job.user_data?.reservedCredit) return;
+  const newUserData = { ...job.user_data, reservedCredit: true };
+  job.user_data = newUserData;
+  const { error } = await supabase.from('Tasks').update({ user_data: newUserData }).eq('id', job.id);
+  if (error) {
+    console.warn(`[Worker ${WORKER_ID}] \u6807\u8bb0 reservedCredit \u5931\u8d25: ${error.message}`);
+  }
+}
 
 async function consumeBackfillCredit(userId) {
   const { data, error } = await supabase
@@ -115,35 +126,52 @@ async function acquireJob() {
 
 async function processJob(job) {
   const start = Date.now();
-  console.log(`[Worker ${WORKER_ID}] 开始处理任务 ${job.id}`);
+  const currentAttempt = Number(job.user_data?.retryCount ?? 0) + 1;
+  console.log(`[Worker ${WORKER_ID}] 开始处理任务 ${job.id}（第 ${currentAttempt} 次尝试）`);
+  const isBackfill = Boolean(job.user_data?.customDate || job.user_data?.customPeriod);
+  const alreadyReserved = Boolean(job.user_data?.reservedCredit);
+  const stuNumber = job.user_data?.session?.stuNumber;
   try {
-    const isBackfill = Boolean(job.user_data?.customDate || job.user_data?.customPeriod);
-    const alreadyReserved = Boolean(job.user_data?.reservedCredit);
-    if (isBackfill && job.user_data?.session?.stuNumber && !alreadyReserved) {
-      await consumeBackfillCredit(job.user_data.session.stuNumber);
+    if (isBackfill && stuNumber && !alreadyReserved) {
+      await consumeBackfillCredit(stuNumber);
+      await markReservedCredit(job);
     }
 
     const resultLog = await executeRunTask(job.user_data);
+    const userDataWithRetry = { ...job.user_data, retryCount: currentAttempt };
     await supabase
       .from('Tasks')
-      .update({ status: 'SUCCESS', result_log: resultLog })
+      .update({ status: 'SUCCESS', result_log: resultLog, user_data: userDataWithRetry })
       .eq('id', job.id);
     console.log(`[Worker ${WORKER_ID}] 任务 ${job.id} 成功，耗时 ${Date.now() - start} ms`);
   } catch (taskError) {
-    const isBackfill = Boolean(job.user_data?.customDate || job.user_data?.customPeriod);
-    if (isBackfill && job.user_data?.session?.stuNumber) {
+    const reachedMaxAttempts = currentAttempt >= MAX_ATTEMPTS;
+    if (reachedMaxAttempts && stuNumber) {
       try {
-        await refundBackfillCredit(job.user_data.session.stuNumber);
+        await refundBackfillCredit(stuNumber);
       } catch (refundError) {
         console.error(`[Worker ${WORKER_ID}] 返还补跑次数失败: ${refundError.message}`);
       }
     }
 
-    await supabase
+    const nextStatus = reachedMaxAttempts ? 'FAILED' : 'PENDING';
+    const userDataWithRetry = { ...job.user_data, retryCount: currentAttempt };
+    const { error: updateError } = await supabase
       .from('Tasks')
-      .update({ status: 'FAILED', result_log: taskError.message })
+      .update({
+        status: nextStatus,
+        result_log: `第${currentAttempt}次失败: ${taskError.message}`,
+        user_data: userDataWithRetry,
+      })
       .eq('id', job.id);
-    console.error(`[Worker ${WORKER_ID}] 任务 ${job.id} 失败，耗时 ${Date.now() - start} ms: ${taskError.message}`);
+
+    if (updateError) {
+      console.error(`[Worker ${WORKER_ID}] 更新任务 ${job.id} 状态为 ${nextStatus} 失败: ${updateError.message}`);
+    } else if (nextStatus === 'PENDING') {
+      console.warn(`[Worker ${WORKER_ID}] 任务 ${job.id} 第 ${currentAttempt} 次失败，重新入队: ${taskError.message}`);
+    } else {
+      console.error(`[Worker ${WORKER_ID}] 任务 ${job.id} 失败，耗时 ${Date.now() - start} ms: ${taskError.message}`);
+    }
   }
 }
 

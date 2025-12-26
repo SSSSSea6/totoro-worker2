@@ -6,6 +6,9 @@ const rsaKeys = require('./rsaKeys');
 const crypto = globalThis.crypto || webcrypto;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const BASE_URL = 'https://app.xtotoro.com/app/';
+const REQUEST_RETRIES = Math.max(1, Number(process.env.RUNNER_FETCH_RETRIES ?? 3));
+const REQUEST_RETRY_DELAY_MS = Math.max(0, Number(process.env.RUNNER_FETCH_RETRY_DELAY_MS ?? 1000));
+const REQUEST_TIMEOUT_MS = Math.max(1, Number(process.env.RUNNER_FETCH_TIMEOUT_MS ?? 15000));
 
 const encryptRequestContent = (req) => {
   const rsa = new NodeRSA(rsaKeys.privateKey);
@@ -318,27 +321,70 @@ const baseHeaders = {
   'User-Agent': 'TotoroSchool/1.2.14 (iPhone; iOS 17.4.1; Scale/3.00)',
 };
 
+const isRetryableMessage = (message) =>
+  /fetch failed|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|socket hang up|TLS/i.test(
+    message || '',
+  );
+
+const fetchWithRetry = async (path, options) => {
+  let lastError;
+  for (let attempt = 1; attempt <= REQUEST_RETRIES; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error('request timeout')), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${BASE_URL}${path}`, { ...options, signal: controller.signal });
+      const text = await res.text();
+      if (!res.ok) {
+        const err = new Error(`上游接口 ${path} 返回 ${res.status}: ${text}`);
+        if (res.status >= 500 && attempt < REQUEST_RETRIES) {
+          lastError = err;
+        } else {
+          throw err;
+        }
+      } else {
+        try {
+          return JSON.parse(text);
+        } catch (parseErr) {
+          const err = new Error(`Response JSON parse failed for ${path}: ${parseErr.message}`);
+          if (attempt >= REQUEST_RETRIES) {
+            throw err;
+          }
+          lastError = err;
+        }
+      }
+    } catch (error) {
+      lastError = error;
+      const retryable =
+        attempt < REQUEST_RETRIES &&
+        (error.name === 'AbortError' || isRetryableMessage(error.message || lastError?.message || ''));
+      if (!retryable) {
+        throw error;
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const delayMs = REQUEST_RETRY_DELAY_MS * 2 ** (attempt - 1);
+    await sleep(delayMs);
+  }
+  throw lastError;
+};
+
 const postEncrypted = async (path, bodyObj) => {
   const encrypted = encryptRequestContent(bodyObj);
-  const res = await fetch(`${BASE_URL}${path}`, {
+  return fetchWithRetry(path, {
     method: 'POST',
     headers: { ...baseHeaders, 'Content-Type': 'text/plain; charset=utf-8' },
     body: encrypted,
   });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`上游接口 ${path} 返回 ${res.status}: ${text}`);
-  return JSON.parse(text);
 };
 
 const postJson = async (path, bodyObj) => {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  return fetchWithRetry(path, {
     method: 'POST',
     headers: { ...baseHeaders, 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify(bodyObj),
   });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`上游接口 ${path} 返回 ${res.status}: ${text}`);
-  return JSON.parse(text);
 };
 
 async function executeRunTask(userData) {
