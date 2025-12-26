@@ -212,6 +212,9 @@ const generateRoute = (distance, taskToday) => {
   };
 };
 
+const SPEED_MIN_MIN_PER_KM = 5;
+const SPEED_MAX_MIN_PER_KM = 7.5;
+
 const generateRunReq = async ({
   distance,
   routeId,
@@ -227,14 +230,6 @@ const generateRunReq = async ({
   customDate,
   customPeriod,
 }) => {
-  const minSecond = Number(minTime) * 60;
-  const maxSecond = Number(maxTime) * 60;
-  // 在最低时间基础上 +7~+12 分钟随机，若超过最大时间则截断到最大时间
-  const lowerBound = minSecond + 7 * 60;
-  const upperBound = minSecond + 12 * 60;
-  const cappedUpper = Math.max(lowerBound, Math.min(upperBound, maxSecond));
-  const range = Math.max(1, cappedUpper - lowerBound);
-  const waitSecond = Math.floor(lowerBound + Math.random() * range);
   const diffMs = offsetDiffMs();
   const now = new Date();
   const nowLocal = new Date(now.getTime() + diffMs);
@@ -244,7 +239,14 @@ const generateRunReq = async ({
   const semesterStart = parseStartDate(startDate);
 
   const defaultLocalStart = new Date(now.getTime() + diffMs);
-  const defaultLocalEnd = new Date(now.getTime() + waitSecond * 1000 + diffMs);
+  const randomMinutesPerKm =
+    SPEED_MIN_MIN_PER_KM + Math.random() * (SPEED_MAX_MIN_PER_KM - SPEED_MIN_MIN_PER_KM);
+  const originalDistanceNum = Number(distance);
+  const randomIncrement = Math.random() * 0.05 + 0.01;
+  const adjustedDistanceNum = originalDistanceNum + randomIncrement;
+  const adjustedDistance = adjustedDistanceNum.toFixed(2);
+  const durationSeconds = Math.max(1, Math.round(randomMinutesPerKm * 60 * adjustedDistanceNum));
+  const defaultLocalEnd = new Date(now.getTime() + durationSeconds * 1000 + diffMs);
 
   if (parsedCustomEnd) {
     if (parsedCustomEnd > nowLocal) {
@@ -260,15 +262,9 @@ const generateRunReq = async ({
 
   const endTime = parsedCustomEnd ?? defaultLocalEnd;
   const startTime = parsedCustomEnd
-    ? new Date(endTime.getTime() - waitSecond * 1000)
+    ? new Date(endTime.getTime() - durationSeconds * 1000)
     : defaultLocalStart;
-
-  const originalDistanceNum = Number(distance);
-  const randomIncrement = Math.random() * 0.05 + 0.01;
-  const adjustedDistanceNum = originalDistanceNum + randomIncrement;
-  const adjustedDistance = adjustedDistanceNum.toFixed(2);
-
-  const avgSpeed = (adjustedDistanceNum / (waitSecond / 3600)).toFixed(2);
+  const avgSpeed = (adjustedDistanceNum / (durationSeconds / 3600)).toFixed(2);
   const duration = intervalToDuration({ start: startTime, end: endTime });
   const mac = await generateMac(stuNumber);
   const runDateStr = format(endTime, 'yyyy-MM-dd');
@@ -310,7 +306,7 @@ const generateRunReq = async ({
     warnType: '0',
     faceData: '',
   };
-  return { req, endTime: new Date(Number(now) + waitSecond * 1000), adjustedDistance };
+  return { req, endTime: new Date(Number(now) + durationSeconds * 1000), adjustedDistance };
 };
 
 const baseHeaders = {
