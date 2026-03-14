@@ -6,9 +6,9 @@ const rsaKeys = require('./rsaKeys');
 const crypto = globalThis.crypto || webcrypto;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const BASE_URL = 'https://app.xtotoro.com/app/';
-const REQUEST_RETRIES = Math.max(1, Number(process.env.RUNNER_FETCH_RETRIES ?? 3));
-const REQUEST_RETRY_DELAY_MS = Math.max(0, Number(process.env.RUNNER_FETCH_RETRY_DELAY_MS ?? 1000));
-const REQUEST_TIMEOUT_MS = Math.max(1, Number(process.env.RUNNER_FETCH_TIMEOUT_MS ?? 15000));
+const REQUEST_RETRIES = Math.max(1, Number(process.env.RUNNER_FETCH_RETRIES ?? 2));
+const REQUEST_RETRY_DELAY_MS = Math.max(0, Number(process.env.RUNNER_FETCH_RETRY_DELAY_MS ?? 400));
+const REQUEST_TIMEOUT_MS = Math.max(1, Number(process.env.RUNNER_FETCH_TIMEOUT_MS ?? 8000));
 
 const encryptRequestContent = (req) => {
   const rsa = new NodeRSA(rsaKeys.privateKey);
@@ -374,7 +374,7 @@ const postEncrypted = async (path, bodyObj) => {
   const encrypted = encryptRequestContent(bodyObj);
   return fetchWithRetry(path, {
     method: 'POST',
-    headers: { ...baseHeaders, 'Content-Type': 'text/plain; charset=utf-8' },
+    headers: { ...baseHeaders, 'Content-Type': 'application/json' },
     body: encrypted,
   });
 };
