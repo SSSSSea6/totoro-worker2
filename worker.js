@@ -10,7 +10,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const RATE_LIMIT_DELAY = Math.max(0, Number(process.env.WORKER_RATE_LIMIT_DELAY ?? 0));
-const POLLING_DELAY = Number(process.env.WORKER_POLLING_DELAY ?? 3000);
+const POLLING_DELAY = Number(process.env.WORKER_POLLING_DELAY ?? 15000);
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.WORKER_MAX_ATTEMPTS ?? 3));
 const CREDIT_UPDATE_MAX_RETRY = 6;
 const REFUND_REPAIR_INTERVAL = Math.max(30000, Number(process.env.WORKER_REFUND_REPAIR_INTERVAL ?? 60000));
